@@ -7,11 +7,13 @@ from bs4 import BeautifulSoup
 class Song:
     def __init__(self):
         self.title = ""
-        self.niconicoLinks = []
+        self.niconicoLinks = None
         self.niconicoThumbnailLink = ""
-        self.youtubeLinks = []
+        self.youtubeLinks = None
         self.youtubeThumbnailLink = ""
         self.niconicoAuthorId = -1
+        self.niconicoAuthorName = ""
+        self.otherLinks = None
 
     # 曲説明のページを渡す
     def apply_info_by_wiki_page(self, soup: BeautifulSoup)-> "Song":
@@ -41,38 +43,50 @@ class Song:
 
 
 dynamodb = boto3.resource("dynamodb")
-table = dynamodb.Table("VocaloidSongs")
+table = dynamodb.Table("VocaloidSongsTable")
 
 
 def handler(event, context):
-    all_songs = find_songs_in_rss()
+
+    #TODO どうにか素早く新曲のニコニコURLを取る
+    response = requests.get("https://www5.atwiki.jp/hmiku/pages/238.html")
+    all_songs = find_new_songs(BeautifulSoup(response.text))
 
     table.wait_until_exists()
+    for song in all_songs:
+        table.put_item(
+            Item={
+                "Title": song.title
+            }
+        )
+        print("putted")
 
-    print(table.creation_date_time)
-    table.put_item(
-        Item={
-            "Producer": "Sasakure.UK",
-            "SongTitle": "終末がやってくる！",
-            "NicoNicoUrl": "None",
-
-        }
-    )
     return "Success return"
 
 
 def find_songs_in_rss()->typing.List[Song]:
-    response = requests.get("https:/]/www5.atwiki.jp/hmiku/rss10_new.xml")
+    response = requests.get("https://www5.atwiki.jp/hmiku/rss10_new.xml")
+    print(response.text)
     all_pages_url = [ref_li_tag["rdf:resource"]
                      for ref_li_tag
-                     in BeautifulSoup(response.text, "xml").find_all("rdf:li")]
-    songs = [Song().apply_info_by_wiki_page(BeautifulSoup(requests.get(page_url).text, "xml"))
+                     in BeautifulSoup(response.text).find_all("rdf:li")]
+    print(all_pages_url)
+    songs = [Song().apply_info_by_wiki_page(BeautifulSoup(requests.get(page_url).text))
              for page_url
              in all_pages_url]
-    #TODO apply_info_by_niconico_apiを適用させる
+    print(songs)
     return songs
 
 
+def find_new_songs(soup: BeautifulSoup)->"typing.List[Song]":
+    edge_songs_names = [a_tag.string
+                        for a_tag
+                        in
+                        soup.find("div", class_="plugin_list_by_tag").find_all("a")
+                        ]
+    songs = []
+    for edge_song_name in edge_songs_names:
+        songs.append(Song())
+        songs[len(songs)-1].title = edge_song_name
+    return songs
 
-
-#print([song.niconicoLinks for song in songs])
