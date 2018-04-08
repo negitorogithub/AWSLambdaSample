@@ -2,8 +2,10 @@
   <dictionary name="Sango">
     <words>
       <w>dynamodb</w>
+      <w>iframe</w>
       <w>niconico</w>
       <w>vocaloid</w>
+      <w>wikibody</w>
     </words>
   </dictionary>
 </component>

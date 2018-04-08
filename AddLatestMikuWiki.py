@@ -3,17 +3,21 @@ import requests
 import typing
 from bs4 import BeautifulSoup
 
+MAX_SCRAPING_SONG_AMOUNT = 20
+
 
 class Song:
     def __init__(self):
         self.title = ""
-        self.niconicoLinks = None
+        self.niconicoLinks = []
         self.niconicoThumbnailLink = ""
-        self.youtubeLinks = None
+        self.youtubeLinks = []
         self.youtubeThumbnailLink = ""
         self.niconicoAuthorId = -1
         self.niconicoAuthorName = ""
-        self.otherLinks = None
+        self.otherLinks = []
+
+
 
     # 曲説明のページを渡す
     def apply_info_by_wiki_page(self, soup: BeautifulSoup)-> "Song":
@@ -25,10 +29,10 @@ class Song:
             pass
 
         # "iframe"はニコニコ埋め込みのタグ
-        iframe_tags = soup.find_all("iframe")
+        iframe_tags = soup.find(id="wikibody").find_all("iframe")
         for iframe_tag in iframe_tags:
             niconico_link_tag = iframe_tag.find("a")
-            if niconico_link_tag:
+            if "www.nicovideo.jp/watch/" in niconico_link_tag.get("href"):
                 self.niconicoLinks.append(niconico_link_tag.get("href"))
             else:
                 pass
@@ -48,18 +52,24 @@ table = dynamodb.Table("VocaloidSongsTable")
 
 def handler(event, context):
 
-    #TODO どうにか素早く新曲のニコニコURLを取る
     response = requests.get("https://www5.atwiki.jp/hmiku/pages/238.html")
     all_songs = find_new_songs(BeautifulSoup(response.text))
 
     table.wait_until_exists()
     for song in all_songs:
+        if len(song.youtubeLinks) == 0:
+            song.youtubeLinks = [None]
+
+        if len(song.niconicoLinks) == 0:
+            song.niconicoLinks = [None]
         table.put_item(
             Item={
-                "Title": song.title
+                "Title": str(song.title),
+                "NicoNicoLink": song.niconicoLinks[0],
+                "YoutubeLink": song.youtubeLinks[0]
             }
         )
-        print("putted")
+    print("putted")
 
     return "Success return"
 
@@ -79,14 +89,20 @@ def find_songs_in_rss()->typing.List[Song]:
 
 
 def find_new_songs(soup: BeautifulSoup)->"typing.List[Song]":
-    edge_songs_names = [a_tag.string
-                        for a_tag
-                        in
-                        soup.find("div", class_="plugin_list_by_tag").find_all("a")
-                        ]
-    songs = []
-    for edge_song_name in edge_songs_names:
-        songs.append(Song())
-        songs[len(songs)-1].title = edge_song_name
-    return songs
+    edge_songs_a_tags = [a_tag
+                         for a_tag
+                         in
+                         soup.find("div", class_="plugin_list_by_tag").find_all("a")
+                         ]
+
+    edge_songs = []
+    for edge_song_a_tag in edge_songs_a_tags:
+        song2add = Song()
+        song2add.title = edge_song_a_tag.string
+        wiki_page = requests.get("https:"+edge_song_a_tag["href"])
+        song2add.apply_info_by_wiki_page(BeautifulSoup(wiki_page.text))
+        edge_songs.append(song2add)
+        if len(edge_songs) > MAX_SCRAPING_SONG_AMOUNT:
+            break
+    return edge_songs
 
