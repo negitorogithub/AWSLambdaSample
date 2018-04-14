@@ -1,14 +1,16 @@
 import boto3
+from boto3.dynamodb.conditions import Key
 import requests
 import typing
 from bs4 import BeautifulSoup
 
-MAX_SCRAPING_SONG_AMOUNT = 20
+MAX_SCRAPING_SONG_AMOUNT = 30
 
 
 class Song:
     def __init__(self):
         self.title = ""
+        self.songId = -1
         self.niconicoLinks = []
         self.niconicoThumbnailLink = ""
         self.youtubeLinks = []
@@ -54,24 +56,57 @@ def handler(event, context):
 
     response = requests.get("https://www5.atwiki.jp/hmiku/pages/238.html")
     all_songs = find_new_songs(BeautifulSoup(response.text))
-
     table.wait_until_exists()
+    ITEM_COUNT = table.item_count
+    new_song_count = 0
+
+    """
+    song_in_table = table.query(
+        IndexName="id-index2",
+        KeyConditionExpression=Key("id").
+    )
+    print(song_in_table)
+    """
+
     for song in all_songs:
         if len(song.youtubeLinks) == 0:
             song.youtubeLinks = [None]
 
         if len(song.niconicoLinks) == 0:
             song.niconicoLinks = [None]
-        table.put_item(
-            Item={
-                "Title": str(song.title),
-                "NicoNicoLink": song.niconicoLinks[0],
-                "YoutubeLink": song.youtubeLinks[0]
-            }
-        )
-    print("putted")
+
+        song_in_table = table.get_item(Key={"Title": song.title})
+
+#       成功時には中身が入る
+        if "Item" in song_in_table.keys():
+            table.update_item(
+                Key={
+                    "Title": str(song_in_table["Item"]["Title"]),
+                },
+                UpdateExpression="set NicoNicoLink=:ni, YoutubeLink=:yo",
+                ExpressionAttributeValues={
+                                            ':ni': song.niconicoLinks[0],
+                                            ':yo': song.youtubeLinks[0],
+                },
+            )
+        else:
+            new_song_count += 1
+            table.put_item(
+                Item={
+                    "id": str(ITEM_COUNT + new_song_count),
+                    "Title": str(song.title),
+                    "NicoNicoLink": song.niconicoLinks[0],
+                    "YoutubeLink": song.youtubeLinks[0]
+                }
+            )
 
     return "Success return"
+
+
+"""
+
+
+"""
 
 
 def find_songs_in_rss()->typing.List[Song]:
